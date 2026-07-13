@@ -4,7 +4,6 @@ Uses fpdf2.
 """
 
 import os
-import math
 from PIL import Image
 from fpdf import FPDF
 
@@ -168,8 +167,6 @@ def generate_pdf(
     puzzle_type="grid",
     border_width=3,
     paper_size="A4",
-    output_size_mm=None,
-    difficulty="custom",
     layout="scattered",
     pages=None,
 ):

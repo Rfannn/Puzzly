@@ -1,26 +1,161 @@
 """Flask web app for Puzzly."""
 
 import os
-import uuid
 import io
+import json
+import uuid
+import time
+import hmac
 import base64
-from flask import Flask, render_template, request, send_file, jsonify, url_for
+import shutil
+import secrets
+import threading
+from functools import wraps
+
+from dotenv import load_dotenv
+from PIL import Image, UnidentifiedImageError
+from werkzeug.utils import secure_filename
+from flask import (
+    Flask,
+    render_template,
+    request,
+    send_file,
+    jsonify,
+    url_for,
+    session,
+    redirect,
+    abort,
+)
 
 import puzzle_maker
 import pdf_exporter
+import db
+import cleanup
+
+load_dotenv()
+
+DEBUG = os.environ.get("FLASK_DEBUG", "0") == "1"
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = os.path.join("static", "uploads")
 app.config["OUTPUT_FOLDER"] = os.path.join("static", "output")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
+# ---- Session signing key (required in production) ----
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
+    if DEBUG:
+        _secret = secrets.token_hex(32)
+        print(
+            "WARNING: SECRET_KEY not set - using a random dev key. "
+            "Sessions reset on restart. Set SECRET_KEY in .env."
+        )
+    else:
+        raise RuntimeError(
+            "SECRET_KEY is not set. Create a .env with SECRET_KEY=<random hex> "
+            "(python -c \"import secrets; print(secrets.token_hex(32))\")."
+        )
+app.secret_key = _secret
+
+# ---- Secure cookie defaults ----
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
+)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LIBRARY_DIR = BASE_DIR  # the 4 pictures live in the project folder
+LIBRARY_DIR = os.path.join(BASE_DIR, "library")  # managed default pictures
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["OUTPUT_FOLDER"], exist_ok=True)
+os.makedirs(LIBRARY_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
+
+# ---- Background + opportunistic file cleanup (1-hour TTL) ----
+FILE_TTL = int(os.environ.get("FILE_TTL_SECONDS", "3600"))
+_last_sweep = 0.0
+_sweep_lock = threading.Lock()
+
+
+def _sweep_files():
+    try:
+        cleanup.sweep(max_age=FILE_TTL)
+    except Exception:
+        pass
+
+
+def _cleanup_thread():
+    while True:
+        time.sleep(min(FILE_TTL, 600))
+        _sweep_files()
+
+
+threading.Thread(target=_cleanup_thread, daemon=True).start()
+
+
+@app.before_request
+def _opportunistic_cleanup():
+    """Throttled sweep so cleanup also runs on hosts without a live thread."""
+    global _last_sweep
+    now = time.time()
+    if now - _last_sweep > 60:
+        with _sweep_lock:
+            if now - _last_sweep > 60:
+                _last_sweep = now
+                _sweep_files()
+
+
+def client_ip():
+    """Best-effort client IP, honoring a proxy's X-Forwarded-For first hop."""
+    fwd = request.headers.get("X-Forwarded-For")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.remote_addr
+
+
+def is_valid_image(path):
+    """True if the file at `path` is a real, decodable image."""
+    try:
+        with Image.open(path) as im:
+            im.verify()
+        return True
+    except (UnidentifiedImageError, OSError, ValueError):
+        return False
+
+
+def require_admin(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not ADMIN_TOKEN:
+            abort(503)
+        if not session.get("is_admin"):
+            if request.method != "GET":
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("admin"))
+        if request.method == "POST" and not _csrf_ok():
+            return jsonify({"error": "Invalid CSRF token"}), 400
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def _csrf_token():
+    """Return the session CSRF token, creating one if needed."""
+    token = session.get("csrf")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf"] = token
+    return token
+
+
+def _csrf_ok():
+    sent = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+    expected = session.get("csrf")
+    return bool(expected) and bool(sent) and hmac.compare_digest(sent, expected)
 
 
 def library_images():
@@ -42,6 +177,9 @@ def allowed_file(filename):
 
 @app.route("/")
 def index():
+    db.log_event(
+        "view", ip=client_ip(), user_agent=request.headers.get("User-Agent")
+    )
     return render_template("index.html")
 
 
@@ -49,14 +187,27 @@ def index():
 def upload():
     files = request.files.getlist("images")
     saved = []
+    rejected = []
     for f in files:
-        if f and allowed_file(f.filename):
-            ext = os.path.splitext(f.filename)[1]
-            name = f"{uuid.uuid4().hex}{ext}"
-            path = os.path.join(app.config["UPLOAD_FOLDER"], name)
-            f.save(path)
+        if not f or not allowed_file(f.filename):
+            if f and f.filename:
+                rejected.append(f.filename)
+            continue
+        ext = os.path.splitext(f.filename)[1]
+        name = f"{uuid.uuid4().hex}{ext}"
+        path = os.path.join(app.config["UPLOAD_FOLDER"], name)
+        f.save(path)
+        if is_valid_image(path):
             saved.append(name)
-    return jsonify({"uploaded": saved})
+        else:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            rejected.append(f.filename)
+    if not saved and rejected:
+        return jsonify({"error": "Those files are not valid images."}), 400
+    return jsonify({"uploaded": saved, "rejected": rejected})
 
 
 @app.route("/library")
@@ -89,89 +240,82 @@ def import_library_image():
     ext = os.path.splitext(safe)[1]
     new_name = f"{uuid.uuid4().hex}{ext}"
     dst = os.path.join(app.config["UPLOAD_FOLDER"], new_name)
-    import shutil
-
     shutil.copyfile(src, dst)
-    return jsonify({"uploaded": new_name})
+    return jsonify({"uploaded": new_name, "source": safe})
+
+
+# ---- Preview rendering with a small in-memory cache ----
+_PREVIEW_CACHE = {}
+_PREVIEW_CACHE_MAX = 48
+
+
+def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
+    """Return a JPEG data-URL for the requested preview, cached by inputs."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0
+    key = (kind, path, mtime, rows, cols, puzzle_type, border_width)
+    cached = _PREVIEW_CACHE.get(key)
+    if cached:
+        return cached
+
+    if kind == "framed":
+        img = puzzle_maker.create_framed_puzzle_image(
+            path, rows, cols, puzzle_type, border_width
+        )
+    elif kind == "template":
+        img = puzzle_maker.create_template_image(
+            rows, cols, puzzle_type, 800, 600, border_width, path
+        )
+    else:
+        img = puzzle_maker.create_preview(path, rows, cols, puzzle_type, border_width)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+    if len(_PREVIEW_CACHE) >= _PREVIEW_CACHE_MAX:
+        _PREVIEW_CACHE.pop(next(iter(_PREVIEW_CACHE)))
+    _PREVIEW_CACHE[key] = data_url
+    return data_url
+
+
+def _preview_response(kind):
+    data = request.get_json(force=True) or {}
+    filename = data.get("filename")
+    if not filename:
+        return jsonify({"error": "No filename"}), 400
+    path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(filename))
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+    try:
+        data_url = _render_preview(
+            kind,
+            path,
+            int(data.get("rows", 4)),
+            int(data.get("cols", 4)),
+            data.get("puzzle_type", "grid"),
+            int(data.get("border_width", 3)),
+        )
+    except Exception as e:
+        return jsonify({"error": f"Preview failed: {e}"}), 500
+    return jsonify({"preview": data_url})
 
 
 @app.route("/preview", methods=["POST"])
 def preview():
-    data = request.get_json(force=True) or {}
-    filename = data.get("filename")
-    puzzle_type = data.get("puzzle_type", "grid")
-    rows = int(data.get("rows", 4))
-    cols = int(data.get("cols", 4))
-    border_width = int(data.get("border_width", 3))
-
-    if not filename:
-        return jsonify({"error": "No filename"}), 400
-
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
-
-    preview_img = puzzle_maker.create_preview(
-        path, rows, cols, puzzle_type, border_width
-    )
-
-    buf = io.BytesIO()
-    preview_img.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    b64 = base64.b64encode(buf.read()).decode("utf-8")
-    return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
+    return _preview_response("plain")
 
 
 @app.route("/preview-template", methods=["POST"])
 def preview_template():
-    data = request.get_json(force=True) or {}
-    filename = data.get("filename")
-    puzzle_type = data.get("puzzle_type", "grid")
-    rows = int(data.get("rows", 4))
-    cols = int(data.get("cols", 4))
-    border_width = int(data.get("border_width", 3))
-
-    if not filename:
-        return jsonify({"error": "No filename"}), 400
-
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
-
-    tpl_img = puzzle_maker.create_template_image(
-        rows, cols, puzzle_type, 800, 600, border_width, path
-    )
-    buf = io.BytesIO()
-    tpl_img.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    b64 = base64.b64encode(buf.read()).decode("utf-8")
-    return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
+    return _preview_response("template")
 
 
 @app.route("/preview-framed", methods=["POST"])
 def preview_framed():
-    data = request.get_json(force=True) or {}
-    filename = data.get("filename")
-    puzzle_type = data.get("puzzle_type", "grid")
-    rows = int(data.get("rows", 4))
-    cols = int(data.get("cols", 4))
-    border_width = int(data.get("border_width", 3))
-
-    if not filename:
-        return jsonify({"error": "No filename"}), 400
-
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
-
-    framed_img = puzzle_maker.create_framed_puzzle_image(
-        path, rows, cols, puzzle_type, border_width
-    )
-    buf = io.BytesIO()
-    framed_img.save(buf, format="JPEG", quality=85)
-    buf.seek(0)
-    b64 = base64.b64encode(buf.read()).decode("utf-8")
-    return jsonify({"preview": f"data:image/jpeg;base64,{b64}"})
+    return _preview_response("framed")
 
 
 @app.route("/generate", methods=["POST"])
@@ -183,33 +327,53 @@ def generate():
     cols = int(data.get("cols", 4))
     border_width = int(data.get("border_width", 3))
     paper_size = data.get("paper_size", "A4")
-    difficulty = data.get("difficulty", "custom")
-    output_size_mm = data.get("output_size_mm")
     layout = data.get("layout", "scattered")
-    pages = data.get("pages", ["framed", "pieces", "reference", "template"])
+    valid_pages = ["framed", "pieces", "reference", "template"]
+    pages = [p for p in (data.get("pages") or []) if p in valid_pages]
+    source_name = data.get("source_name") or "upload"
 
     if not filename:
         return jsonify({"error": "No filename"}), 400
 
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not pages:
+        return jsonify({"error": "Select at least one page to include."}), 400
+
+    path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(filename))
     if not os.path.exists(path):
         return jsonify({"error": "File not found"}), 404
 
     out_name = f"puzzle_{uuid.uuid4().hex[:8]}.pdf"
     out_path = os.path.join(app.config["OUTPUT_FOLDER"], out_name)
 
-    pdf_exporter.generate_pdf(
-        image_path=path,
-        output_path=out_path,
-        rows=rows,
-        cols=cols,
-        puzzle_type=puzzle_type,
-        border_width=border_width,
-        paper_size=paper_size,
-        output_size_mm=output_size_mm,
-        difficulty=difficulty,
-        layout=layout,
-        pages=pages,
+    try:
+        pdf_exporter.generate_pdf(
+            image_path=path,
+            output_path=out_path,
+            rows=rows,
+            cols=cols,
+            puzzle_type=puzzle_type,
+            border_width=border_width,
+            paper_size=paper_size,
+            layout=layout,
+            pages=pages,
+        )
+    except Exception as e:
+        return jsonify({"error": f"Could not build the PDF: {e}"}), 500
+
+    db.log_event(
+        "generate",
+        picture=source_name,
+        options={
+            "puzzle_type": puzzle_type,
+            "rows": rows,
+            "cols": cols,
+            "border_width": border_width,
+            "paper_size": paper_size,
+            "layout": layout,
+            "pages": pages,
+        },
+        ip=client_ip(),
+        user_agent=request.headers.get("User-Agent"),
     )
 
     return jsonify({"download_url": url_for("download", filename=out_name)})
@@ -217,13 +381,137 @@ def generate():
 
 @app.route("/download/<filename>")
 def download(filename):
-    path = os.path.join(app.config["OUTPUT_FOLDER"], filename)
+    path = os.path.join(app.config["OUTPUT_FOLDER"], os.path.basename(filename))
     if not os.path.exists(path):
         return "File not found", 404
     return send_file(path, as_attachment=True, download_name="puzzle.pdf")
 
 
-app.secret_key = os.environ.get("SECRET_KEY", "puzzly-dev-secret-key")
+# ---------------- Admin ----------------
+
+
+@app.route("/admin")
+def admin():
+    if not ADMIN_TOKEN:
+        abort(503)
+    if not session.get("is_admin"):
+        return render_template("admin.html", authed=False)
+    recent = db.recent_events(100)
+    for e in recent:
+        e["options_summary"] = _summarize_options(e.get("options"))
+    by_day = db.generations_by_day(30)
+    stats = {
+        "totals": db.total_by_kind(),
+        "generations_30d": db.count_generations_since(30),
+        "top_pictures": db.top_pictures(10),
+        "by_day": by_day,
+        "by_day_max": max((d["count"] for d in by_day), default=0),
+        "recent": recent,
+    }
+    return render_template(
+        "admin.html", authed=True, stats=stats, csrf_token=_csrf_token()
+    )
+
+
+def _summarize_options(options_json):
+    """Turn a stored options JSON blob into a short human string."""
+    if not options_json:
+        return ""
+    try:
+        o = json.loads(options_json)
+    except (ValueError, TypeError):
+        return options_json
+    parts = []
+    if o.get("puzzle_type"):
+        parts.append(o["puzzle_type"])
+    if o.get("rows") and o.get("cols"):
+        parts.append(f"{o['rows']}x{o['cols']}")
+    if o.get("paper_size"):
+        parts.append(o["paper_size"])
+    if o.get("pages"):
+        parts.append("+".join(o["pages"]))
+    return " · ".join(parts)
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    if not ADMIN_TOKEN:
+        abort(503)
+    token = (request.form.get("token") or "").strip()
+    if token and hmac.compare_digest(token, ADMIN_TOKEN):
+        session["is_admin"] = True
+        return redirect(url_for("admin"))
+    time.sleep(1)  # blunt brute-forcing
+    return render_template("admin.html", authed=False, error="Invalid token"), 401
+
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/library/upload", methods=["POST"])
+@require_admin
+def admin_library_upload():
+    files = request.files.getlist("images")
+    saved = []
+    for f in files:
+        if f and allowed_file(f.filename):
+            name = secure_filename(f.filename)
+            if not name:
+                continue
+            dst = os.path.join(LIBRARY_DIR, name)
+            base, ext = os.path.splitext(name)
+            i = 1
+            while os.path.exists(dst):
+                name = f"{base}_{i}{ext}"
+                dst = os.path.join(LIBRARY_DIR, name)
+                i += 1
+            f.save(dst)
+            if is_valid_image(dst):
+                saved.append(name)
+            else:
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+    if not saved:
+        return jsonify({"error": "No valid images uploaded."}), 400
+    return jsonify({"uploaded": saved})
+
+
+@app.route("/admin/library/delete", methods=["POST"])
+@require_admin
+def admin_library_delete():
+    data = request.get_json(force=True) or {}
+    name = data.get("name")
+    if not name:
+        return jsonify({"error": "No name"}), 400
+    safe = os.path.basename(name)
+    if safe not in library_images():
+        return jsonify({"error": "Not found"}), 404
+    try:
+        os.remove(os.path.join(LIBRARY_DIR, safe))
+    except OSError:
+        return jsonify({"error": "Could not delete"}), 500
+    return jsonify({"deleted": safe})
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    limit = app.config.get("MAX_CONTENT_LENGTH", 0)
+    mb = round(limit / (1024 * 1024), 1) if limit else None
+    msg = f"File too large. Max upload size is {mb} MB." if mb else "File too large."
+    return jsonify({"error": msg}), 413
+
+
+@app.errorhandler(404)
+def not_found(_e):
+    if request.path.startswith("/api") or request.is_json:
+        return jsonify({"error": "Not found"}), 404
+    return render_template("index.html"), 404
+
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
