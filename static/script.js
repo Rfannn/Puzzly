@@ -2,6 +2,7 @@
 
 const state = {
     currentFile: null,
+    sourceName: null,
     previewTimer: null,
     generating: false,
 };
@@ -66,6 +67,7 @@ async function selectLibraryImage(name, el) {
         const data = await res.json();
         if (data.uploaded) {
             state.currentFile = data.uploaded;
+            state.sourceName = data.source || name;
             requestPreview();
         }
     } catch (e) {
@@ -89,6 +91,7 @@ function handleFiles(files) {
             if (data.uploaded && data.uploaded.length) {
                 const name = data.uploaded[0];
                 state.currentFile = name;
+                state.sourceName = "upload";
                 addUploadedThumb(name);
                 requestPreview();
             }
@@ -105,6 +108,7 @@ function addUploadedThumb(name) {
         <span class="check">✓</span>`;
     div.addEventListener("click", () => {
         state.currentFile = name;
+        state.sourceName = "upload";
         setSelectedThumb(div);
         requestPreview();
     });
@@ -112,7 +116,6 @@ function addUploadedThumb(name) {
     gal.prepend(div);
 }
 
-$("uploadBtn").addEventListener("click", () => $("fileInput").click());
 $("fileInput").addEventListener("change", (e) => handleFiles(e.target.files));
 
 /* drag & drop anywhere on the upload area */
@@ -120,7 +123,7 @@ const uploadArea = $("uploadBtn");
 ["dragover", "dragenter"].forEach((ev) =>
     uploadArea.addEventListener(ev, (e) => {
         e.preventDefault();
-        uploadArea.style.borderColor = "var(--primary)";
+        uploadArea.style.borderColor = "var(--mahogany)";
     })
 );
 ["dragleave", "drop"].forEach((ev) =>
@@ -162,13 +165,30 @@ function setRowsCols(r, c) {
 });
 
 document.querySelectorAll(".page-opt").forEach((el) =>
-    el.addEventListener("change", requestPreview)
+    el.addEventListener("change", () => {
+        updateGenerateState();
+        requestPreview();
+    })
 );
+
+function anyPageSelected() {
+    return document.querySelectorAll(".page-opt:checked").length > 0;
+}
+
+function updateGenerateState() {
+    const btn = $("generateBtn");
+    if (!state.currentFile) return;
+    const ok = anyPageSelected();
+    btn.disabled = !ok || state.generating;
+    const hint = $("pagesHint");
+    if (hint) hint.hidden = ok;
+}
 
 /* ---------------- Live preview ---------------- */
 function getOptions() {
     return {
         filename: state.currentFile,
+        source_name: state.sourceName,
         puzzle_type: $("puzzleType").dataset.value,
         layout: $("layout").dataset.value,
         rows: parseInt($("rows").value, 10) || 3,
@@ -183,7 +203,7 @@ function getOptions() {
 
 function requestPreview() {
     if (!state.currentFile) return;
-    $("generateBtn").disabled = false;
+    updateGenerateState();
     $("previewHint").textContent = "Updating preview...";
     clearTimeout(state.previewTimer);
     state.previewTimer = setTimeout(doPreview, 220);
@@ -222,6 +242,11 @@ async function doPreview() {
 /* ---------------- Generate ---------------- */
 $("generateBtn").addEventListener("click", async () => {
     if (!state.currentFile || state.generating) return;
+    if (!anyPageSelected()) {
+        showStatus("error", "Select at least one page to include in the PDF.");
+        updateGenerateState();
+        return;
+    }
     state.generating = true;
     const btn = $("generateBtn");
     btn.disabled = true;
@@ -245,7 +270,7 @@ $("generateBtn").addEventListener("click", async () => {
             throw new Error(data.error || "generation failed");
         }
     } catch (e) {
-        showStatus("error", "Could not generate the puzzle. Please try again.");
+        showStatus("error", e.message || "Could not generate the puzzle. Please try again.");
     } finally {
         state.generating = false;
         btn.disabled = false;

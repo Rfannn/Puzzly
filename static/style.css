@@ -240,6 +240,8 @@ select.input {
 /* ---------------- Footer ---------------- */
 .footer { margin-top: 34px; text-align: center; color: rgba(44, 44, 44, 0.5); font-size: 0.82rem; }
 .footer .heart { color: #c0608f; }
+.footer a { color: var(--mahogany); font-weight: 600; text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
 
 /* ---------------- Spinner ---------------- */
 .spinner {
@@ -285,19 +287,72 @@ select.input {
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
+/* ---------------- Admin ---------------- */
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.admin-table th, .admin-table td {
+    text-align: left; padding: 8px 10px;
+    border-bottom: 1px solid rgba(139, 90, 43, 0.15);
+    vertical-align: top;
+}
+.admin-table th {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--mahogany); font-weight: 700;
+}
+.admin-table td.num, .admin-table th.num { text-align: right; }
+.admin-table td.details {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 0.74rem; color: rgba(44, 44, 44, 0.7);
+    max-width: 320px; word-break: break-word;
+}
+.table-scroll { overflow-x: auto; }
+.admin-thumb .thumb-del {
+    position: absolute; top: 6px; right: 6px;
+    width: 24px; height: 24px; border-radius: 999px; border: none; cursor: pointer;
+    background: rgba(156, 50, 44, 0.92); color: var(--cream);
+    font-size: 16px; line-height: 1; display: grid; place-items: center;
+    box-shadow: var(--shadow-card); opacity: 0; transition: opacity 0.15s;
+}
+.admin-thumb:hover .thumb-del, .admin-thumb .thumb-del:focus-visible { opacity: 1; }
+
 /* ---------------- Focus ---------------- */
 :focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
 
 /* ---------------- Responsive ---------------- */
-@media (max-width: 560px) {
-    .app, .mx-auto { padding-left: 14px; padding-right: 14px; }
+@media (max-width: 767px) {
     .card { padding: 16px; border-radius: 14px; }
-    .gallery { grid-template-columns: repeat(2, 1fr); }
     .preview-wrap { min-height: 220px; }
     .preview-wrap img { max-height: 60vh; }
 }
+@media (max-width: 620px) {
+    .gallery { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 360px) {
     .segmented button { padding: 8px 6px; font-size: 0.8rem; }
+}
+
+/* ---------------- Admin day-bar chart ---------------- */
+.daybars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 120px;
+    padding-top: 8px;
+}
+.daybar {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: var(--paper);
+    border-radius: 3px 3px 0 0;
+    overflow: hidden;
+}
+.daybar-fill {
+    width: 100%;
+    min-height: 2px;
+    background: var(--mahogany);
+    border-radius: 3px 3px 0 0;
+    transition: height 0.2s;
 }
 
 /* ---------------- Reduced motion ---------------- */
