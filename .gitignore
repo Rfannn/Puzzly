@@ -16,6 +16,20 @@ static/output/*
 /*.gif
 /*.bmp
 
+# Default puzzle pictures (managed via /admin, kept local, never open-sourced)
+library/*
+!library/.gitkeep
+
+# Node (Tailwind build tooling; the built CSS itself IS committed)
+node_modules/
+package-lock.json
+
+# Usage database (local only, never open-sourced)
+data/
+
+# Internal planning / review notes (dev-only)
+plans/
+
 # Production-only files (kept locally, never open-sourced)
 wsgi.py
 DEPLOY.md
