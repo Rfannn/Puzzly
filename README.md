@@ -13,6 +13,10 @@ compiled Tailwind CSS build.
 
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 
+## Live demo
+A free hosted demo is live at **https://puzzly.pythonanywhere.com/** — try it
+in your browser, or use it to turn your own pictures into printable puzzles.
+
 ## Features
 - Upload images (JPG, PNG, WEBP, BMP, GIF) or use pictures from the built-in library
 - Two cut styles: simple **Grid** or interlocking **Jigsaw** pieces
