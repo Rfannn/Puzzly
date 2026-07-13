@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.ruff_cache/
+.env
+
+# App-generated artifacts (folders are created at runtime)
+static/uploads/*
+static/output/*
+
+# Personal / sample images at the project root (users supply their own)
+/*.jpg
+/*.jpeg
+/*.png
+/*.webp
+/*.gif
+/*.bmp
+
+# Production-only files (kept locally, never open-sourced)
+wsgi.py
+DEPLOY.md
