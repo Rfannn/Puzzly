@@ -109,6 +109,26 @@ def _opportunistic_cleanup():
                 _sweep_files()
 
 
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return resp
+
+
+def _clamp(value, low, high, default):
+    """Coerce `value` to an int within [low, high], falling back to default."""
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+ROWS_MIN, ROWS_MAX = 2, 12
+BORDER_MIN, BORDER_MAX = 0, 20
+
+
 def client_ip():
     """Best-effort client IP, honoring a proxy's X-Forwarded-For first hop."""
     fwd = request.headers.get("X-Forwarded-For")
@@ -293,10 +313,10 @@ def _preview_response(kind):
         data_url = _render_preview(
             kind,
             path,
-            int(data.get("rows", 4)),
-            int(data.get("cols", 4)),
+            _clamp(data.get("rows"), ROWS_MIN, ROWS_MAX, 4),
+            _clamp(data.get("cols"), ROWS_MIN, ROWS_MAX, 4),
             data.get("puzzle_type", "grid"),
-            int(data.get("border_width", 3)),
+            _clamp(data.get("border_width"), BORDER_MIN, BORDER_MAX, 3),
         )
     except Exception as e:
         return jsonify({"error": f"Preview failed: {e}"}), 500
@@ -323,9 +343,9 @@ def generate():
     data = request.get_json(force=True) or {}
     filename = data.get("filename")
     puzzle_type = data.get("puzzle_type", "grid")
-    rows = int(data.get("rows", 4))
-    cols = int(data.get("cols", 4))
-    border_width = int(data.get("border_width", 3))
+    rows = _clamp(data.get("rows"), ROWS_MIN, ROWS_MAX, 4)
+    cols = _clamp(data.get("cols"), ROWS_MIN, ROWS_MAX, 4)
+    border_width = _clamp(data.get("border_width"), BORDER_MIN, BORDER_MAX, 3)
     paper_size = data.get("paper_size", "A4")
     layout = data.get("layout", "scattered")
     valid_pages = ["framed", "pieces", "reference", "template"]
