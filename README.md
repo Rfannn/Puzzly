@@ -14,7 +14,7 @@ compiled Tailwind CSS build.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Live demo
-A free hosted demo is live at **https://puzzly.pythonanywhere.com/** — try it
+A hosted demo is live at **https://puzzly.pythonanywhere.com/** — try it
 in your browser, or use it to turn your own pictures into printable puzzles.
 
 ## Features
