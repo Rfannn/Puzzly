@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+    <title>Puzzly Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='tailwind.build.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="font-sans text-charcoal bg-cream min-h-screen antialiased">
+    <div class="mx-auto max-w-[1100px] px-4 py-7 md:px-6 md:py-9">
+        <header class="flex items-center justify-between gap-4 mb-7">
+            <div class="flex items-center gap-3">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="26" height="26" fill="#D4A437" stroke="none">
+                        <path d="M21 11V9c0-.55-.45-1-1-1h-1V7c0-1.66-1.34-3-3-3h-2.5c.27-.36.5-.78.5-1.25 0-1.24-1.01-2.25-2.25-2.25S9.5 3.51 9.5 4.75c0 .47.23.89.5 1.25H8c-1.66 0-3 1.34-3 3v1H4c-.55 0-1 .45-1 1v2c0 .55.45 1 1 1h1v2c0 1.66 1.34 3 3 3h2.5c-.27.36-.5.78-.5 1.25 0 1.24 1.01 2.25 2.25 2.25s2.25-1.01 2.25-2.25c0-.47-.23-.89-.5-1.25H17c1.66 0 3-1.34 3-3v-2h1c.55 0 1-.45 1-1z"/>
+                    </svg>
+                </span>
+                <div>
+                    <h1 class="font-serif text-2xl md:text-3xl font-bold text-mahogany leading-none">Puzzly Admin</h1>
+                    <p class="text-sm text-charcoal/60 mt-1">Usage &amp; default pictures</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ url_for('index') }}" class="btn btn-ghost">&larr; App</a>
+                {% if authed %}
+                <form method="post" action="{{ url_for('admin_logout') }}">
+                    <button type="submit" class="btn btn-outline">Log out</button>
+                </form>
+                {% endif %}
+            </div>
+        </header>
+
+        {% if not authed %}
+        <main class="max-w-md mx-auto">
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Admin sign in</h2>
+                </div>
+                {% if error %}
+                <div class="status error" style="margin-top:0;margin-bottom:14px">{{ error }}</div>
+                {% endif %}
+                <form method="post" action="{{ url_for('admin_login') }}">
+                    <div class="field">
+                        <label for="token">Admin token</label>
+                        <input type="password" id="token" name="token" class="input" autocomplete="current-password" required autofocus>
+                        <span class="hint">Set via the <code>ADMIN_TOKEN</code> environment variable.</span>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-full">Sign in</button>
+                </form>
+            </section>
+        </main>
+        {% else %}
+        <main class="flex flex-col gap-6">
+            <!-- Stats -->
+            <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="card">
+                    <div class="option-group-title">Total views</div>
+                    <div class="font-serif text-3xl font-bold text-mahogany">{{ stats.totals.get('view', 0) }}</div>
+                </div>
+                <div class="card">
+                    <div class="option-group-title">Total puzzles generated</div>
+                    <div class="font-serif text-3xl font-bold text-mahogany">{{ stats.totals.get('generate', 0) }}</div>
+                </div>
+                <div class="card">
+                    <div class="option-group-title">Generated (last 30 days)</div>
+                    <div class="font-serif text-3xl font-bold text-mahogany">{{ stats.generations_30d }}</div>
+                </div>
+            </section>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <!-- Default pictures -->
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Default pictures</h2>
+                    </div>
+                    <div id="adminGallery" class="gallery">
+                        <div class="gallery-empty">Loading&hellip;</div>
+                    </div>
+                    <label class="upload-btn" id="adminUploadBtn">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                        <span>Add a default picture</span>
+                        <input type="file" id="adminFileInput" accept=".png,.jpg,.jpeg,.webp,.bmp,.gif" multiple hidden>
+                    </label>
+                    <div id="adminStatus" class="status" hidden></div>
+                </section>
+
+                <!-- Top pictures -->
+                <section class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Most used pictures</h2>
+                    </div>
+                    {% if stats.top_pictures %}
+                    <table class="admin-table">
+                        <thead><tr><th>Picture</th><th class="num">Puzzles</th></tr></thead>
+                        <tbody>
+                        {% for row in stats.top_pictures %}
+                            <tr><td>{{ row.picture }}</td><td class="num">{{ row.count }}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <p class="hint">No generations recorded yet.</p>
+                    {% endif %}
+                </section>
+            </div>
+
+            <!-- Generations per day -->
+            {% if stats.by_day %}
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Puzzles per day</h2>
+                    <span class="muted sm">Last 30 days</span>
+                </div>
+                <div class="daybars">
+                    {% for d in stats.by_day %}
+                    <div class="daybar" title="{{ d.day }}: {{ d.count }}">
+                        <div class="daybar-fill" style="height: {{ (d.count / stats.by_day_max * 100) if stats.by_day_max else 0 }}%"></div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            <!-- Recent activity -->
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Recent activity</h2>
+                    <span class="muted sm">Last {{ stats.recent|length }} events</span>
+                </div>
+                <div class="table-scroll">
+                <table class="admin-table">
+                    <thead><tr><th>When (UTC)</th><th>Event</th><th>Picture</th><th>Details</th><th>IP</th></tr></thead>
+                    <tbody>
+                    {% for e in stats.recent %}
+                        <tr>
+                            <td>{{ e.ts[:19].replace('T', ' ') }}</td>
+                            <td>{{ e.kind }}</td>
+                            <td>{{ e.picture or '' }}</td>
+                            <td class="details">{{ e.options_summary or '' }}</td>
+                            <td>{{ e.ip or '' }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </section>
+        </main>
+        {% endif %}
+
+        <footer class="footer">
+            <span>Made with <span class="heart">&#9829;</span> by
+                <a href="https://github.com/rfannn" target="_blank" rel="noopener noreferrer">Rfannn</a>
+            </span>
+        </footer>
+    </div>
+
+    {% if authed %}
+    <script src="{{ url_for('static', filename='admin.js') }}"></script>
+    {% endif %}
+</body>
+</html>
