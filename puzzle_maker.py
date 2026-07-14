@@ -240,6 +240,32 @@ def _int_to_rgba(img):
     return img.convert("RGBA")
 
 
+def preview_thumbnail(image_path, size=800):
+    """Return a path to a cached, downscaled copy of `image_path`.
+
+    Previews are rendered from this so a large source image does not trigger
+    full-resolution work on every option change. The thumbnail is reused
+    across preview calls (keyed by path + size)."""
+    src = Image.open(image_path)
+    thumb_path = f"{image_path}.thumb{size}.jpg"
+    try:
+        if os.path.exists(thumb_path) and os.path.getmtime(thumb_path) >= os.path.getmtime(
+            image_path
+        ):
+            return thumb_path
+    except OSError:
+        pass
+    w, h = src.size
+    scale = min(1.0, size / max(w, h))
+    tw, th = max(1, int(w * scale)), max(1, int(h * scale))
+    thumb = src.convert("RGB").resize((tw, th), Image.LANCZOS)
+    try:
+        thumb.save(thumb_path, format="JPEG", quality=85)
+    except OSError:
+        return image_path
+    return thumb_path
+
+
 def create_template_image(
     rows, cols, puzzle_type, width, height, border_width=3, image_path=None
 ):
@@ -249,104 +275,57 @@ def create_template_image(
     original picture — a colour frame showing kids what the edge pieces
     should look like. The inner area is white with rounded corners,
     light-gray piece cut-lines, and a thick black outline."""
-    inner_w = width
-    inner_h = height
-
-    # Frame is ~8% of the shorter side on each edge (within 5–10%)
-    frame_bw = max(20, int(min(width, height) * 0.08))
-    # Rounded corner radius for both frame and inner area
-    corner_r = max(6, int(min(width, height) * 0.035))
-
     if image_path:
         src = Image.open(image_path).convert("RGB").resize((width, height), Image.LANCZOS)
         img = _rounded_picture_board(src, border_width)
         draw = ImageDraw.Draw(img)
+        box = _frame_box(width, height, border_width)
 
-        # Inner white play area with rounded corners
-        inner_x1 = frame_bw
-        inner_y1 = frame_bw
-        inner_x2 = width - 1 - frame_bw
-        inner_y2 = height - 1 - frame_bw
+        # White play area with rounded corners, then frame separators/borders.
         draw.rounded_rectangle(
-            [inner_x1, inner_y1, inner_x2, inner_y2],
-            radius=corner_r,
+            [box["inner_x1"], box["inner_y1"], box["inner_x2"], box["inner_y2"]],
+            radius=box["corner_r"],
             fill=(255, 255, 255),
         )
+        _draw_inner_frame(draw, box, border_width)
+        _draw_outer_frame(draw, width, height, box, border_width)
 
-        # Thick black separator between picture frame and inner area
-        sep = max(2, border_width)
-        draw.rounded_rectangle(
-            [inner_x1 - sep, inner_y1 - sep, inner_x2 + sep, inner_y2 + sep],
-            radius=corner_r + sep,
-            outline=(0, 0, 0),
-            width=sep * 2,
+        # Inner cut-lines on the white area (shared with the framed board).
+        _draw_piece_lines_in_box(
+            draw, rows, cols, puzzle_type, box, border_width, image_path
         )
-
-        # Thick black outer border
-        draw.rounded_rectangle(
-            [2, 2, width - 3, height - 3],
-            radius=corner_r + 2,
-            outline=(0, 0, 0),
-            width=max(4, border_width * 2),
-        )
-
-        # Inner cut-lines on the white area
-        cell_w = (inner_x2 - inner_x1) / cols
-        cell_h = (inner_y2 - inner_y1) / rows
-        if puzzle_type == "jigsaw":
-            h_edges, v_edges = _make_edge_maps(
-                rows, cols, _edge_seed(image_path, rows, cols)
-            )
-            for row in range(rows):
-                for col in range(cols):
-                    polygon = _trace_piece(
-                        row, col, rows, cols, cell_w, cell_h, h_edges, v_edges
-                    )
-                    polygon = _offset_points(polygon, inner_x1, inner_y1)
-                    draw.polygon(polygon, outline=(120, 120, 120), width=border_width)
-        else:
-            for r in range(1, rows):
-                y = int(inner_y1 + r * cell_h)
-                draw.line(
-                    [(inner_x1, y), (inner_x2, y)],
-                    fill=(120, 120, 120),
-                    width=border_width,
-                )
-            for c in range(1, cols):
-                x = int(inner_x1 + c * cell_w)
-                draw.line(
-                    [(x, inner_y1), (x, inner_y2)],
-                    fill=(120, 120, 120),
-                    width=border_width,
-                )
         return img
 
-    # No picture frame: plain white board with rounded corners
+    # No picture frame: plain white board with rounded corners.
     img = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle(
         [1, 1, width - 2, height - 2],
-        radius=corner_r,
+        radius=max(6, int(min(width, height) * 0.035)),
         outline=(0, 0, 0),
         width=max(4, border_width * 2),
     )
-
-    cell_w = inner_w / cols
-    cell_h = inner_h / rows
+    box = {
+        "inner_x1": 0,
+        "inner_y1": 0,
+        "inner_x2": width,
+        "inner_y2": height,
+        "corner_r": 0,
+    }
     if puzzle_type == "jigsaw":
         h_edges, v_edges = _make_edge_maps(rows, cols)
         for row in range(rows):
             for col in range(cols):
                 polygon = _trace_piece(
-                    row, col, rows, cols, cell_w, cell_h, h_edges, v_edges
+                    row, col, rows, cols, width / cols, height / rows, h_edges, v_edges
                 )
                 draw.polygon(polygon, outline=(180, 180, 180), width=border_width)
     else:
         for r in range(1, rows):
-            y = int(r * cell_h)
+            y = int(r * height / rows)
             draw.line([(0, y), (width, y)], fill=(180, 180, 180), width=border_width)
         for c in range(1, cols):
-            x = int(c * cell_w)
+            x = int(c * width / cols)
             draw.line([(x, 0), (x, height)], fill=(180, 180, 180), width=border_width)
     return img
 
