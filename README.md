@@ -18,7 +18,8 @@ A hosted demo is live at **https://puzzly.pythonanywhere.com/** — try it
 in your browser, or use it to turn your own pictures into printable puzzles.
 
 ## Features
-- Upload images (JPG, PNG, WEBP, BMP, GIF) or use pictures from the built-in library
+- Upload your own images (JPG, PNG, WEBP, BMP, GIF) or pick from the built-in
+  library of default pictures
 - Two cut styles: simple **Grid** or interlocking **Jigsaw** pieces
 - Adjustable piece count (rows × columns) with difficulty presets
 - Customizable cut-line thickness, paper size (A4 / Letter / A3), and layout
@@ -72,6 +73,7 @@ All configuration is read from environment variables (via `.env`). See
 | `FLASK_DEBUG`           | `0`     | Set to `1` for auto-reload and a generated dev key. |
 | `SESSION_COOKIE_SECURE` | `0`     | Set to `1` behind HTTPS so the session cookie is marked `Secure`. |
 | `FILE_TTL_SECONDS`      | `3600`  | How long uploads/outputs live before deletion. |
+| `PROXY_TRUSTED`         | `0`     | Set to `1` behind a proxy (e.g. PythonAnywhere) to record the real client IP. |
 | `PORT`                  | `5000`  | Port for the built-in server. |
 
 ## The admin dashboard

@@ -46,9 +46,10 @@ def test_preview_missing_filename(client):
 
 
 def test_preview_renders_for_uploaded_file(client, uploaded_file):
-    resp = client.post("/preview", json={"filename": uploaded_file})
-    assert resp.status_code == 200
-    assert resp.get_json()["preview"].startswith("data:image/jpeg;base64,")
+    for endpoint in ("/preview", "/preview-framed", "/preview-template"):
+        resp = client.post(endpoint, json={"filename": uploaded_file})
+        assert resp.status_code == 200
+        assert resp.get_json()["preview"].startswith("data:image/jpeg;base64,")
 
 
 # ---------------- Generate ----------------
