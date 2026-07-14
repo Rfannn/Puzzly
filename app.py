@@ -72,6 +72,9 @@ os.makedirs(app.config["OUTPUT_FOLDER"], exist_ok=True)
 os.makedirs(LIBRARY_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
+# Trust X-Forwarded-For for the client IP only when behind a known proxy
+# (e.g. PythonAnywhere). Leave off for direct/local serving.
+PROXY_TRUSTED = os.environ.get("PROXY_TRUSTED", "0") == "1"
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
@@ -130,10 +133,12 @@ BORDER_MIN, BORDER_MAX = 0, 20
 
 
 def client_ip():
-    """Best-effort client IP, honoring a proxy's X-Forwarded-For first hop."""
-    fwd = request.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    """Best-effort client IP, honoring a proxy's X-Forwarded-For first hop
+    only when running behind a trusted proxy (PROXY_TRUSTED=1)."""
+    if PROXY_TRUSTED:
+        fwd = request.headers.get("X-Forwarded-For")
+        if fwd:
+            return fwd.split(",")[0].strip()
     return request.remote_addr
 
 
@@ -179,11 +184,13 @@ def _csrf_ok():
 
 
 def library_images():
-    """List image files present in the project folder (the provided pictures)."""
+    """List image files present in the project folder (the default pictures)."""
     if not os.path.isdir(LIBRARY_DIR):
         return []
     files = []
     for f in sorted(os.listdir(LIBRARY_DIR)):
+        if ".thumb" in f:
+            continue
         if os.path.splitext(f)[1].lower() in ALLOWED_EXTENSIONS and os.path.isfile(
             os.path.join(LIBRARY_DIR, f)
         ):
@@ -197,9 +204,8 @@ def allowed_file(filename):
 
 @app.route("/")
 def index():
-    db.log_event(
-        "view", ip=client_ip(), user_agent=request.headers.get("User-Agent")
-    )
+    # Views are not logged per-hit to avoid a write on every landing page
+    # load; only meaningful actions (generations) are recorded.
     return render_template("index.html")
 
 
@@ -270,7 +276,10 @@ _PREVIEW_CACHE_MAX = 48
 
 
 def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
-    """Return a JPEG data-URL for the requested preview, cached by inputs."""
+    """Return a JPEG data-URL for the requested preview, cached by inputs.
+
+    Previews are rendered from a downscaled thumbnail so a large source image
+    does not trigger expensive work on every option change."""
     try:
         mtime = os.path.getmtime(path)
     except OSError:
@@ -280,16 +289,20 @@ def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
     if cached:
         return cached
 
+    preview_path = puzzle_maker.preview_thumbnail(path, size=800)
+
     if kind == "framed":
         img = puzzle_maker.create_framed_puzzle_image(
-            path, rows, cols, puzzle_type, border_width
+            preview_path, rows, cols, puzzle_type, border_width
         )
     elif kind == "template":
         img = puzzle_maker.create_template_image(
-            rows, cols, puzzle_type, 800, 600, border_width, path
+            rows, cols, puzzle_type, 800, 600, border_width, preview_path
         )
     else:
-        img = puzzle_maker.create_preview(path, rows, cols, puzzle_type, border_width)
+        img = puzzle_maker.create_preview(
+            preview_path, rows, cols, puzzle_type, border_width
+        )
 
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
@@ -297,7 +310,6 @@ def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
 
     if len(_PREVIEW_CACHE) >= _PREVIEW_CACHE_MAX:
         _PREVIEW_CACHE.pop(next(iter(_PREVIEW_CACHE)))
-    _PREVIEW_CACHE[key] = data_url
     return data_url
 
 
