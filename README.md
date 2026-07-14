@@ -99,6 +99,10 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+## Hosting
+See [HOSTING.md](HOSTING.md) for deploying the demo (environment variables,
+scheduled cleanup, and proxy/IP configuration).
+
 ## Project structure
 ```
 app.py                 Flask routes, security, cleanup, CSRF, admin
