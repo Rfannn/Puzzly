@@ -48,6 +48,8 @@ in your browser, or use it to turn your own pictures into printable puzzles.
    ```bash
    pip install -r requirements.txt
    ```
+   For a reproducible production install, use `requirements.lock.txt`
+   (fully pinned versions) instead.
 3. Create a `.env` file (copy the example and fill it in):
    ```bash
    cp .env.example .env
