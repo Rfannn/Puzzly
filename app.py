@@ -31,6 +31,8 @@ import puzzle_maker
 import pdf_exporter
 import db
 import cleanup
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 load_dotenv()
 
@@ -73,8 +75,21 @@ os.makedirs(LIBRARY_DIR, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 # Trust X-Forwarded-For for the client IP only when behind a known proxy
-# (e.g. PythonAnywhere). Leave off for direct/local serving.
+# (e.g. PythonAnywhere).
 PROXY_TRUSTED = os.environ.get("PROXY_TRUSTED", "0") == "1"
+
+# ---- Rate limiting (public, unauthenticated, CPU-heavy endpoints) ----
+def _rate_limit_key():
+    return client_ip() or get_remote_address()
+
+
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    app=app,
+    storage_uri="memory://",
+    default_limits=["200 per hour"],
+    headers_enabled=True,
+)
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
@@ -210,6 +225,7 @@ def index():
 
 
 @app.route("/upload", methods=["POST"])
+@limiter.limit("30 per minute")
 def upload():
     files = request.files.getlist("images")
     saved = []
@@ -351,6 +367,7 @@ def preview_framed():
 
 
 @app.route("/generate", methods=["POST"])
+@limiter.limit("20 per minute")
 def generate():
     data = request.get_json(force=True) or {}
     filename = data.get("filename")
@@ -536,6 +553,11 @@ def too_large(_e):
     mb = round(limit / (1024 * 1024), 1) if limit else None
     msg = f"File too large. Max upload size is {mb} MB." if mb else "File too large."
     return jsonify({"error": msg}), 413
+
+
+@app.errorhandler(429)
+def rate_limited(_e):
+    return jsonify({"error": "Too many requests. Please slow down and try again."}), 429
 
 
 @app.errorhandler(404)

@@ -68,6 +68,7 @@ async function selectLibraryImage(name, el) {
         if (data.uploaded) {
             state.currentFile = data.uploaded;
             state.sourceName = data.source || name;
+            onFileSelected();
             requestPreview();
         }
     } catch (e) {
@@ -78,6 +79,13 @@ async function selectLibraryImage(name, el) {
 function setSelectedThumb(el) {
     document.querySelectorAll(".thumb").forEach((t) => t.classList.remove("selected"));
     if (el) el.classList.add("selected");
+}
+
+function onFileSelected() {
+    state.generating = false;
+    $("generateBtn").disabled = !anyPageSelected();
+    $("printBtn").disabled = false;
+    updateGenerateState();
 }
 
 /* ---------------- Upload ---------------- */
@@ -91,8 +99,10 @@ function handleFiles(files) {
             if (data.uploaded && data.uploaded.length) {
                 const name = data.uploaded[0];
                 state.currentFile = name;
+                state.source ||= "upload";
                 state.sourceName = "upload";
                 addUploadedThumb(name);
+                onFileSelected();
                 requestPreview();
             }
         })
@@ -110,6 +120,7 @@ function addUploadedThumb(name) {
         state.currentFile = name;
         state.sourceName = "upload";
         setSelectedThumb(div);
+        onFileSelected();
         requestPreview();
     });
     setSelectedThumb(div);
@@ -238,6 +249,12 @@ async function doPreview() {
         $("previewHint").textContent = "Preview failed";
     }
 }
+
+/* ---------------- Print ---------------- */
+$("printBtn").addEventListener("click", () => {
+    if (!state.currentFile) return;
+    window.print();
+});
 
 /* ---------------- Generate ---------------- */
 $("generateBtn").addEventListener("click", async () => {

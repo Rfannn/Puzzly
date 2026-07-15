@@ -1,0 +1,29 @@
+/* Print stylesheet: when printing the page, hide all app chrome and show
+   only the live preview so it can be printed cleanly. */
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #printArea,
+    #printArea * {
+        visibility: visible;
+    }
+
+    #printArea {
+        position: absolute;
+        inset: 0;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+    }
+
+    .preview-wrap img,
+    #previewWrap img {
+        max-width: 100%;
+        height: auto;
+        border: none !important;
+        box-shadow: none !important;
+    }
+}
