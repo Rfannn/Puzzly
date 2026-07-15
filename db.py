@@ -9,6 +9,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "puzzly.db")
 
+_conn = None
+
+
+def get_db():
+    global _conn
+    if _conn is None:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        _conn = sqlite3.connect(DB_PATH)
+        _conn.row_factory = sqlite3.Row
+        _conn.executescript(_SCHEMA)
+    return _conn
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +56,6 @@ def log_event(kind, picture=None, options=None, ip=None, user_agent=None):
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (ts, kind, picture, opts, ip, user_agent),
             )
-        conn.close()
     except Exception:
         pass
 

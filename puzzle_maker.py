@@ -275,6 +275,8 @@ def create_template_image(
     original picture — a colour frame showing kids what the edge pieces
     should look like. The inner area is white with rounded corners,
     light-gray piece cut-lines, and a thick black outline."""
+    # NOTE: image_path is always provided in the live app (previews pass it).
+    # The plain-white-only branch is kept for standalone / unit-call use.
     if image_path:
         src = Image.open(image_path).convert("RGB").resize((width, height), Image.LANCZOS)
         img = _rounded_picture_board(src, border_width)
