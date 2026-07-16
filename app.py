@@ -143,6 +143,23 @@ def _clamp(value, low, high, default):
         return default
 
 
+def _resize_if_large(path, max_dim=2000):
+    """Downscale image at `path` in-place if either dimension exceeds `max_dim`.
+    Returns the path unchanged for small images. Uses Pillow (already a dep)."""
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+            if w <= max_dim and h <= max_dim:
+                return
+            scale = max_dim / max(w, h)
+            new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+            im = im.convert("RGB")
+            im = im.resize((new_w, new_h), Image.LANCZOS)
+            im.save(path, quality=85)
+    except Exception:
+        pass  # leave original file if anything goes wrong
+
+
 ROWS_MIN, ROWS_MAX = 2, 12
 BORDER_MIN, BORDER_MAX = 0, 20
 
@@ -239,6 +256,7 @@ def upload():
         name = f"{uuid.uuid4().hex}{ext}"
         path = os.path.join(app.config["UPLOAD_FOLDER"], name)
         f.save(path)
+        _resize_if_large(path)
         if is_valid_image(path):
             saved.append(name)
         else:
@@ -291,7 +309,7 @@ _PREVIEW_CACHE = {}
 _PREVIEW_CACHE_MAX = 48
 
 
-def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
+def _render_preview(kind, path, rows, cols, puzzle_type, border_width, tab_style="classic"):
     """Return a JPEG data-URL for the requested preview, cached by inputs.
 
     Previews are rendered from a downscaled thumbnail so a large source image
@@ -300,7 +318,7 @@ def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
         mtime = os.path.getmtime(path)
     except OSError:
         mtime = 0
-    key = (kind, path, mtime, rows, cols, puzzle_type, border_width)
+    key = (kind, path, mtime, rows, cols, puzzle_type, border_width, tab_style)
     cached = _PREVIEW_CACHE.get(key)
     if cached:
         return cached
@@ -309,15 +327,15 @@ def _render_preview(kind, path, rows, cols, puzzle_type, border_width):
 
     if kind == "framed":
         img = puzzle_maker.create_framed_puzzle_image(
-            preview_path, rows, cols, puzzle_type, border_width
+            preview_path, rows, cols, puzzle_type, border_width, tab_style=tab_style
         )
     elif kind == "template":
         img = puzzle_maker.create_template_image(
-            rows, cols, puzzle_type, 800, 600, border_width, preview_path
+            rows, cols, puzzle_type, 800, 600, border_width, preview_path, tab_style=tab_style
         )
     else:
         img = puzzle_maker.create_preview(
-            preview_path, rows, cols, puzzle_type, border_width
+            preview_path, rows, cols, puzzle_type, border_width, tab_style=tab_style
         )
 
     buf = io.BytesIO()
@@ -345,10 +363,65 @@ def _preview_response(kind):
             _clamp(data.get("cols"), ROWS_MIN, ROWS_MAX, 4),
             data.get("puzzle_type", "grid"),
             _clamp(data.get("border_width"), BORDER_MIN, BORDER_MAX, 3),
+            data.get("tab_style", "classic"),
         )
     except Exception as e:
         return jsonify({"error": f"Preview failed: {e}"}), 500
     return jsonify({"preview": data_url})
+
+
+@app.route("/transform", methods=["POST"])
+def transform_image():
+    data = request.get_json(force=True) or {}
+    filename = data.get("filename")
+    rotate_deg = _clamp(data.get("rotate_deg"), -270, 270, 0)
+    flip_h = data.get("flip_h", False)
+    if not filename:
+        return jsonify({"error": "No filename"}), 400
+    path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(filename))
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+    try:
+        with Image.open(path) as im:
+            if rotate_deg:
+                im = im.rotate(-rotate_deg, expand=True)
+            if flip_h:
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+            ext = os.path.splitext(path)[1]
+            new_name = f"{uuid.uuid4().hex}{ext}"
+            new_path = os.path.join(app.config["UPLOAD_FOLDER"], new_name)
+            im.save(new_path)
+        return jsonify({"filename": new_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/adjust", methods=["POST"])
+def adjust_image():
+    data = request.get_json(force=True) or {}
+    filename = data.get("filename")
+    if not filename:
+        return jsonify({"error": "No filename"}), 400
+    path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(filename))
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+    brightness = max(0.3, min(2.0, float(data.get("brightness", 1.0) or 1.0)))
+    contrast = max(0.3, min(2.0, float(data.get("contrast", 1.0) or 1.0)))
+    saturation = max(0.0, min(2.5, float(data.get("saturation", 1.0) or 1.0)))
+    try:
+        from PIL import ImageEnhance
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im = ImageEnhance.Brightness(im).enhance(brightness)
+            im = ImageEnhance.Contrast(im).enhance(contrast)
+            im = ImageEnhance.Color(im).enhance(saturation)
+            ext = os.path.splitext(path)[1]
+            new_name = f"{uuid.uuid4().hex}{ext}"
+            new_path = os.path.join(app.config["UPLOAD_FOLDER"], new_name)
+            im.save(new_path)
+        return jsonify({"filename": new_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/preview", methods=["POST"])
@@ -372,6 +445,7 @@ def generate():
     data = request.get_json(force=True) or {}
     filename = data.get("filename")
     puzzle_type = data.get("puzzle_type", "grid")
+    tab_style = data.get("tab_style", "classic")
     rows = _clamp(data.get("rows"), ROWS_MIN, ROWS_MAX, 4)
     cols = _clamp(data.get("cols"), ROWS_MIN, ROWS_MAX, 4)
     border_width = _clamp(data.get("border_width"), BORDER_MIN, BORDER_MAX, 3)
@@ -405,6 +479,8 @@ def generate():
             paper_size=paper_size,
             layout=layout,
             pages=pages,
+            tab_style=tab_style,
+            watermark=data.get("watermark", False),
         )
     except Exception as e:
         return jsonify({"error": f"Could not build the PDF: {e}"}), 500
@@ -414,6 +490,8 @@ def generate():
         picture=source_name,
         options={
             "puzzle_type": puzzle_type,
+            "tab_style": tab_style,
+            "watermark": data.get("watermark", False),
             "rows": rows,
             "cols": cols,
             "border_width": border_width,
@@ -483,6 +561,7 @@ def _summarize_options(options_json):
 
 
 @app.route("/admin/login", methods=["POST"])
+@limiter.limit("5 per minute")
 def admin_login():
     if not ADMIN_TOKEN:
         abort(503)

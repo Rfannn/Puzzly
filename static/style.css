@@ -314,6 +314,14 @@ select.input {
 }
 .admin-thumb:hover .thumb-del, .admin-thumb .thumb-del:focus-visible { opacity: 1; }
 
+/* ---------------- Range sliders ---------------- */
+input[type="range"].range {
+    width: 100%;
+    accent-color: var(--mahogany);
+    height: 28px;
+    cursor: pointer;
+}
+
 /* ---------------- Focus ---------------- */
 :focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
 

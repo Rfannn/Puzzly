@@ -151,6 +151,7 @@ uploadArea.addEventListener("drop", (e) => {
 initSegmented("puzzleType");
 initSegmented("layout");
 initSegmented("borderWidth");
+initSegmented("tabStyle");
 
 const difficultySelect = $("difficulty");
 difficultySelect.addEventListener("change", () => {
@@ -168,12 +169,114 @@ function setRowsCols(r, c) {
     $("cols").value = c;
 }
 
+function updateTabStyleVisibility() {
+    const field = $("tabStyleField");
+    if (!field) return;
+    field.hidden = $("puzzleType").dataset.value !== "jigsaw";
+}
+updateTabStyleVisibility();
+$("puzzleType").querySelectorAll("button").forEach((btn) =>
+    btn.addEventListener("click", updateTabStyleVisibility)
+);
+
+async function applyTransform(action) {
+    if (!state.currentFile) return;
+    $("previewHint").textContent = "Applying transform\u2026";
+    try {
+        const res = await fetch("/transform", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filename: state.currentFile,
+                rotate_deg:
+                    action === "rotate-cw" ? 90 :
+                    action === "rotate-ccw" ? -90 : 0,
+                flip_h: action === "flip-h",
+            }),
+        });
+        const data = await res.json();
+        if (data.filename) {
+            state.currentFile = data.filename;
+            requestPreview();
+        } else {
+            $("previewHint").textContent = data.error || "Transform failed";
+        }
+    } catch (e) {
+        $("previewHint").textContent = "Transform failed";
+    }
+}
+
+document.querySelectorAll("#imageTransform button").forEach((btn) =>
+    btn.addEventListener("click", () => applyTransform(btn.dataset.action))
+);
+
 ["rows", "cols", "paperSize"].forEach((id) => {
     $(id).addEventListener("change", () => {
         if (id === "rows" || id === "cols") difficultySelect.value = "custom";
         requestPreview();
     });
 });
+
+let adjustTimer = null;
+async function applyAdjustments() {
+    if (!state.currentFile) return;
+    const brightness = (parseInt($("brightness").value, 10) || 100) / 100;
+    const contrast = (parseInt($("contrast").value, 10) || 100) / 100;
+    const saturation = (parseInt($("saturation").value, 10) || 100) / 100;
+    // Neutral values: no need to rewrite the file.
+    if (brightness === 1 && contrast === 1 && saturation === 1) {
+        requestPreview();
+        return;
+    }
+    $("previewHint").textContent = "Adjusting image\u2026";
+    try {
+        const res = await fetch("/adjust", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filename: state.currentFile,
+                brightness,
+                contrast,
+                saturation,
+            }),
+        });
+        const data = await res.json();
+        if (data.filename) {
+            state.currentFile = data.filename;
+            // Reset sliders after baking into file so next move is relative to new base.
+            ["brightness", "contrast", "saturation"].forEach((id) => {
+                $(id).value = 100;
+                $(id + "Val").textContent = "100%";
+            });
+            requestPreview();
+        } else {
+            $("previewHint").textContent = data.error || "Adjust failed";
+        }
+    } catch (e) {
+        $("previewHint").textContent = "Adjust failed";
+    }
+}
+
+["brightness", "contrast", "saturation"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+        $(id + "Val").textContent = el.value + "%";
+        clearTimeout(adjustTimer);
+        adjustTimer = setTimeout(applyAdjustments, 350);
+    });
+});
+
+const resetAdj = $("resetAdjustments");
+if (resetAdj) {
+    resetAdj.addEventListener("click", () => {
+        ["brightness", "contrast", "saturation"].forEach((id) => {
+            $(id).value = 100;
+            $(id + "Val").textContent = "100%";
+        });
+        requestPreview();
+    });
+}
 
 document.querySelectorAll(".page-opt").forEach((el) =>
     el.addEventListener("change", () => {
@@ -201,11 +304,13 @@ function getOptions() {
         filename: state.currentFile,
         source_name: state.sourceName,
         puzzle_type: $("puzzleType").dataset.value,
+        tab_style: $("tabStyle") ? $("tabStyle").dataset.value : "classic",
         layout: $("layout").dataset.value,
         rows: parseInt($("rows").value, 10) || 3,
         cols: parseInt($("cols").value, 10) || 3,
         border_width: parseInt($("borderWidth").dataset.value, 10) || 3,
         paper_size: $("paperSize").value,
+        watermark: !!( $("watermarkOpt") && $("watermarkOpt").checked ),
         pages: Array.from(document.querySelectorAll(".page-opt:checked")).map(
             (el) => el.value
         ),

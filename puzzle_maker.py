@@ -14,15 +14,24 @@ from PIL import Image, ImageDraw
 # ---------------------------------------------------------------------------
 
 
-def _tab_horizontal(x1, x2, y, d=1):
+# tab_style scales: (height_factor, head_factor)
+_TAB_STYLES = {
+    "classic": (0.22, 0.38),
+    "rounded": (0.16, 0.48),
+    "minimal": (0.08, 0.22),
+}
+
+
+def _tab_horizontal(x1, x2, y, d=1, tab_style="classic"):
     """Classic jigsaw tab on a horizontal edge from (x1,y) to (x2,y).
     d=1: tab goes down, d=-1: tab goes up (blank/inward)."""
     L = x2 - x1
     if L <= 0:
         return [(x1, y), (x2, y)]
+    hf, headf = _TAB_STYLES.get(tab_style, _TAB_STYLES["classic"])
     mid = (x1 + x2) / 2
-    h = L * 0.22 * d
-    head = L * 0.38
+    h = L * hf * d
+    head = L * headf
     return [
         (x1, y),
         (x1 + L * 0.30, y),
@@ -40,15 +49,16 @@ def _tab_horizontal(x1, x2, y, d=1):
     ]
 
 
-def _tab_vertical(x, y1, y2, d=1):
+def _tab_vertical(x, y1, y2, d=1, tab_style="classic"):
     """Classic jigsaw tab on a vertical edge from (x,y1) to (x,y2).
     d=1: tab goes right, d=-1: tab goes left (blank)."""
     L = y2 - y1
     if L <= 0:
         return [(x, y1), (x, y2)]
+    hf, headf = _TAB_STYLES.get(tab_style, _TAB_STYLES["classic"])
     mid = (y1 + y2) / 2
-    h = L * 0.22 * d
-    head = L * 0.38
+    h = L * hf * d
+    head = L * headf
     return [
         (x, y1),
         (x, y1 + L * 0.30),
@@ -66,7 +76,7 @@ def _tab_vertical(x, y1, y2, d=1):
     ]
 
 
-def _trace_piece(row, col, rows, cols, cell_w, cell_h, h_edges, v_edges):
+def _trace_piece(row, col, rows, cols, cell_w, cell_h, h_edges, v_edges, tab_style="classic"):
     """Trace the boundary of a jigsaw piece. Returns closed polygon."""
     x1 = col * cell_w
     y1 = row * cell_h
@@ -81,20 +91,20 @@ def _trace_piece(row, col, rows, cols, cell_w, cell_h, h_edges, v_edges):
         # Use the SAME sign as the bottom neighbour's bottom edge so the
         # tab on one piece matches the blank (notch) on the adjacent piece.
         d = h_edges[row - 1][col]
-        points.extend(_tab_horizontal(x1, x2, y1, d))
+        points.extend(_tab_horizontal(x1, x2, y1, d, tab_style))
 
     # Right edge: top to bottom
     if col == cols - 1:
         points.append((x2, y2))
     else:
-        pts = _tab_vertical(x2, y1, y2, v_edges[row][col])
+        pts = _tab_vertical(x2, y1, y2, v_edges[row][col], tab_style)
         points.extend(pts[1:])
 
     # Bottom edge: right to left
     if row == rows - 1:
         points.append((x1, y2))
     else:
-        pts = _tab_horizontal(x1, x2, y2, h_edges[row][col])
+        pts = _tab_horizontal(x1, x2, y2, h_edges[row][col], tab_style)
         points.extend(list(reversed(pts))[1:])
 
     # Left edge: bottom to top
@@ -103,15 +113,15 @@ def _trace_piece(row, col, rows, cols, cell_w, cell_h, h_edges, v_edges):
     else:
         # Use the SAME sign as the right neighbour's right edge so the
         # tab on one piece matches the blank (notch) on the adjacent piece.
-        pts = _tab_vertical(x1, y1, y2, v_edges[row][col - 1])
+        pts = _tab_vertical(x1, y1, y2, v_edges[row][col - 1], tab_style)
         points.extend(list(reversed(pts))[1:])
 
     return points
 
 
-def _edge_seed(image_path, rows, cols, puzzle_type="jigsaw"):
+def _edge_seed(image_path, rows, cols, puzzle_type="jigsaw", tab_style="classic"):
     """Stable seed so generated pieces, previews, and templates agree."""
-    identity = f"{puzzle_type}:{rows}:{cols}:"
+    identity = f"{puzzle_type}:{tab_style}:{rows}:{cols}:"
     if image_path:
         try:
             stat = os.stat(image_path)
@@ -122,7 +132,7 @@ def _edge_seed(image_path, rows, cols, puzzle_type="jigsaw"):
     return int.from_bytes(digest[:8], "big")
 
 
-def _make_edge_maps(rows, cols, seed=None):
+def _make_edge_maps(rows, cols, seed=None, tab_style="classic"):
     rng = random.Random(seed)
     h_edges = [[rng.choice([-1, 1]) for _ in range(cols)] for _ in range(rows - 1)]
     v_edges = [[rng.choice([-1, 1]) for _ in range(cols - 1)] for _ in range(rows)]
@@ -199,7 +209,7 @@ def _draw_outer_frame(draw, width, height, box, border_width):
 
 
 def _draw_piece_lines_in_box(
-    draw, rows, cols, puzzle_type, box, border_width, image_path=None, color=(120, 120, 120)
+    draw, rows, cols, puzzle_type, box, border_width, image_path=None, color=(120, 120, 120), tab_style="classic"
 ):
     inner_x1 = box["inner_x1"]
     inner_y1 = box["inner_y1"]
@@ -210,12 +220,12 @@ def _draw_piece_lines_in_box(
 
     if puzzle_type == "jigsaw":
         h_edges, v_edges = _make_edge_maps(
-            rows, cols, _edge_seed(image_path, rows, cols)
+            rows, cols, _edge_seed(image_path, rows, cols, tab_style=tab_style), tab_style=tab_style
         )
         for row in range(rows):
             for col in range(cols):
                 polygon = _trace_piece(
-                    row, col, rows, cols, cell_w, cell_h, h_edges, v_edges
+                    row, col, rows, cols, cell_w, cell_h, h_edges, v_edges, tab_style
                 )
                 polygon = _offset_points(polygon, inner_x1, inner_y1)
                 draw.polygon(polygon, outline=color, width=border_width)
@@ -267,7 +277,7 @@ def preview_thumbnail(image_path, size=800):
 
 
 def create_template_image(
-    rows, cols, puzzle_type, width, height, border_width=3, image_path=None
+    rows, cols, puzzle_type, width, height, border_width=3, image_path=None, tab_style="classic"
 ):
     """Placement template with a proportional picture frame.
 
@@ -294,7 +304,7 @@ def create_template_image(
 
         # Inner cut-lines on the white area (shared with the framed board).
         _draw_piece_lines_in_box(
-            draw, rows, cols, puzzle_type, box, border_width, image_path
+            draw, rows, cols, puzzle_type, box, border_width, image_path, color=(120, 120, 120), tab_style=tab_style
         )
         return img
 
@@ -315,11 +325,11 @@ def create_template_image(
         "corner_r": 0,
     }
     if puzzle_type == "jigsaw":
-        h_edges, v_edges = _make_edge_maps(rows, cols)
+        h_edges, v_edges = _make_edge_maps(rows, cols, tab_style=tab_style)
         for row in range(rows):
             for col in range(cols):
                 polygon = _trace_piece(
-                    row, col, rows, cols, width / cols, height / rows, h_edges, v_edges
+                    row, col, rows, cols, width / cols, height / rows, h_edges, v_edges, tab_style
                 )
                 draw.polygon(polygon, outline=(180, 180, 180), width=border_width)
     else:
@@ -388,7 +398,7 @@ def generate_grid_pieces(image_path, rows, cols, border_width=3):
     return pieces
 
 
-def generate_jigsaw_pieces(image_path, rows, cols, border_width=3, supersample=2):
+def generate_jigsaw_pieces(image_path, rows, cols, border_width=3, supersample=2, tab_style="classic"):
     """Cut image into jigsaw-style pieces with interlocking tabs/blanks.
     Returns list of PIL RGBA images. Pieces are rendered at `supersample`
     scale and downscaled for smooth, anti-aliased edges."""
@@ -396,7 +406,7 @@ def generate_jigsaw_pieces(image_path, rows, cols, border_width=3, supersample=2
     w, h = img.size
     SS = max(1, int(supersample))
 
-    h_edges, v_edges = _make_edge_maps(rows, cols, _edge_seed(image_path, rows, cols))
+    h_edges, v_edges = _make_edge_maps(rows, cols, _edge_seed(image_path, rows, cols, tab_style=tab_style), tab_style=tab_style)
 
     pieces = []
     for row in range(rows):
@@ -405,7 +415,7 @@ def generate_jigsaw_pieces(image_path, rows, cols, border_width=3, supersample=2
             cell_w = (w * SS) / cols
             cell_h = (h * SS) / rows
             polygon = _trace_piece(
-                row, col, rows, cols, cell_w, cell_h, h_edges, v_edges
+                row, col, rows, cols, cell_w, cell_h, h_edges, v_edges, tab_style
             )
 
             mask = Image.new("L", (w * SS, h * SS), 0)
@@ -431,7 +441,7 @@ def generate_jigsaw_pieces(image_path, rows, cols, border_width=3, supersample=2
     return pieces
 
 
-def create_preview(image_path, rows, cols, puzzle_type="grid", border_width=3):
+def create_preview(image_path, rows, cols, puzzle_type="grid", border_width=3, tab_style="classic"):
     """Preview image with cut lines overlaid. Returns PIL RGB image."""
     img = Image.open(image_path).convert("RGB").copy()
     draw = ImageDraw.Draw(img)
@@ -441,7 +451,7 @@ def create_preview(image_path, rows, cols, puzzle_type="grid", border_width=3):
 
     if puzzle_type == "jigsaw":
         return _rounded_picture_board(
-            _draw_jigsaw_overlay(img, rows, cols, border_width, image_path=image_path),
+            _draw_jigsaw_overlay(img, rows, cols, border_width, image_path=image_path, tab_style=tab_style),
             border_width,
         )
 
@@ -464,6 +474,7 @@ def _draw_jigsaw_overlay(
     outline_color=(0, 0, 0),
     supersample=2,
     image_path=None,
+    tab_style="classic",
 ):
     """Return a copy of base_rgb with a smooth, anti-aliased jigsaw outline.
     The outline is drawn at `supersample` scale then downscaled for crisp edges."""
@@ -475,12 +486,12 @@ def _draw_jigsaw_overlay(
     cell_h = (h * SS) / rows
 
     h_edges, v_edges = _make_edge_maps(
-        rows, cols, _edge_seed(image_path, rows, cols)
+        rows, cols, _edge_seed(image_path, rows, cols, tab_style=tab_style), tab_style=tab_style
     )
     for row in range(rows):
         for col in range(cols):
             polygon = _trace_piece(
-                row, col, rows, cols, cell_w, cell_h, h_edges, v_edges
+                row, col, rows, cols, cell_w, cell_h, h_edges, v_edges, tab_style
             )
             draw.polygon(polygon, outline=outline_color, width=line_width * SS)
 
@@ -488,14 +499,14 @@ def _draw_jigsaw_overlay(
 
 
 def create_single_page_image(
-    image_path, rows, cols, puzzle_type="grid", border_width=3
+    image_path, rows, cols, puzzle_type="grid", border_width=3, tab_style="classic"
 ):
     """Full assembled picture with thick cut lines so it can be printed
     and cut in place on a single page."""
     img = Image.open(image_path).convert("RGB").copy()
     if puzzle_type == "jigsaw":
         return _rounded_picture_board(
-            _draw_jigsaw_overlay(img, rows, cols, border_width, image_path=image_path),
+            _draw_jigsaw_overlay(img, rows, cols, border_width, image_path=image_path, tab_style=tab_style),
             border_width,
         )
     draw = ImageDraw.Draw(img)
@@ -515,7 +526,7 @@ def create_single_page_image(
 
 
 def create_framed_puzzle_image(
-    image_path, rows, cols, puzzle_type="grid", border_width=3, width=None, height=None
+    image_path, rows, cols, puzzle_type="grid", border_width=3, width=None, height=None, tab_style="classic"
 ):
     """Full assembled picture framed like the template board, but the inner
     play area shows the actual picture with cut lines (the assembled puzzle).
@@ -534,7 +545,7 @@ def create_framed_puzzle_image(
 
     # Cut lines over the picture (the assembled pieces).
     _draw_piece_lines_in_box(
-        draw, rows, cols, puzzle_type, box, border_width, image_path, color=(0, 0, 0)
+        draw, rows, cols, puzzle_type, box, border_width, image_path, color=(0, 0, 0), tab_style=tab_style
     )
 
     # Thick black separator between the picture frame and the play area.
@@ -544,7 +555,7 @@ def create_framed_puzzle_image(
     return img
 
 
-def create_reference_image(image_path, rows, cols, puzzle_type="grid"):
+def create_reference_image(image_path, rows, cols, puzzle_type="grid", tab_style="classic"):
     """Reference/guide image matching the chosen cut style."""
     img = Image.open(image_path).convert("RGB").copy()
     draw = ImageDraw.Draw(img)
@@ -561,6 +572,7 @@ def create_reference_image(image_path, rows, cols, puzzle_type="grid"):
                 2,
                 outline_color=(255, 0, 0),
                 image_path=image_path,
+                tab_style=tab_style,
             ),
             2,
         )
