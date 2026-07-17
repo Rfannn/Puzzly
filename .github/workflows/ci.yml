@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Run tests
-        run: pytest -v
+        run: PYTHONPATH=. pytest -v
       - name: Check syntax
         run: python -m py_compile app.py puzzle_maker.py pdf_exporter.py db.py cleanup.py
 
