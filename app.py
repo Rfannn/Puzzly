@@ -309,7 +309,7 @@ _PREVIEW_CACHE = {}
 _PREVIEW_CACHE_MAX = 48
 
 
-def _render_preview(kind, path, rows, cols, puzzle_type, border_width, tab_style="classic"):
+def _render_preview(kind, path, rows, cols, puzzle_type, border_width, tab_style="classic", watermark=False, watermark_text=""):
     """Return a JPEG data-URL for the requested preview, cached by inputs.
 
     Previews are rendered from a downscaled thumbnail so a large source image
@@ -318,7 +318,7 @@ def _render_preview(kind, path, rows, cols, puzzle_type, border_width, tab_style
         mtime = os.path.getmtime(path)
     except OSError:
         mtime = 0
-    key = (kind, path, mtime, rows, cols, puzzle_type, border_width, tab_style)
+    key = (kind, path, mtime, rows, cols, puzzle_type, border_width, tab_style, watermark, watermark_text)
     cached = _PREVIEW_CACHE.get(key)
     if cached:
         return cached
@@ -364,6 +364,8 @@ def _preview_response(kind):
             data.get("puzzle_type", "grid"),
             _clamp(data.get("border_width"), BORDER_MIN, BORDER_MAX, 3),
             data.get("tab_style", "classic"),
+            data.get("watermark", False),
+            data.get("watermark_text", ""),
         )
     except Exception as e:
         return jsonify({"error": f"Preview failed: {e}"}), 500
@@ -387,34 +389,6 @@ def transform_image():
                 im = im.rotate(-rotate_deg, expand=True)
             if flip_h:
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)
-            ext = os.path.splitext(path)[1]
-            new_name = f"{uuid.uuid4().hex}{ext}"
-            new_path = os.path.join(app.config["UPLOAD_FOLDER"], new_name)
-            im.save(new_path)
-        return jsonify({"filename": new_name})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/adjust", methods=["POST"])
-def adjust_image():
-    data = request.get_json(force=True) or {}
-    filename = data.get("filename")
-    if not filename:
-        return jsonify({"error": "No filename"}), 400
-    path = os.path.join(app.config["UPLOAD_FOLDER"], os.path.basename(filename))
-    if not os.path.exists(path):
-        return jsonify({"error": "File not found"}), 404
-    brightness = max(0.3, min(2.0, float(data.get("brightness", 1.0) or 1.0)))
-    contrast = max(0.3, min(2.0, float(data.get("contrast", 1.0) or 1.0)))
-    saturation = max(0.0, min(2.5, float(data.get("saturation", 1.0) or 1.0)))
-    try:
-        from PIL import ImageEnhance
-        with Image.open(path) as im:
-            im = im.convert("RGB")
-            im = ImageEnhance.Brightness(im).enhance(brightness)
-            im = ImageEnhance.Contrast(im).enhance(contrast)
-            im = ImageEnhance.Color(im).enhance(saturation)
             ext = os.path.splitext(path)[1]
             new_name = f"{uuid.uuid4().hex}{ext}"
             new_path = os.path.join(app.config["UPLOAD_FOLDER"], new_name)
@@ -481,6 +455,7 @@ def generate():
             pages=pages,
             tab_style=tab_style,
             watermark=data.get("watermark", False),
+            watermark_text=data.get("watermark_text", ""),
         )
     except Exception as e:
         return jsonify({"error": f"Could not build the PDF: {e}"}), 500
@@ -492,6 +467,7 @@ def generate():
             "puzzle_type": puzzle_type,
             "tab_style": tab_style,
             "watermark": data.get("watermark", False),
+            "watermark_text": data.get("watermark_text", ""),
             "rows": rows,
             "cols": cols,
             "border_width": border_width,

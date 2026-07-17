@@ -39,7 +39,7 @@ class PuzzlePDF(FPDF):
             self.set_y(-14)
             self.set_font("Helvetica", "I", 7)
             self.set_text_color(150, 150, 150)
-            self.cell(0, 10, "Made with Puzzly - puzzly.pythonanywhere.com", align="C")
+            self.cell(0, 10, getattr(self, "_watermark_text", "Made with Puzzly"), align="C")
         else:
             self.set_y(-14)
             self.set_font("Helvetica", "I", 8)
@@ -177,6 +177,7 @@ def generate_pdf(
     pages=None,
     tab_style="classic",
     watermark=False,
+    watermark_text="",
 ):
     """Generate a printable PDF. `pages` is a list selecting which pages to
     include, in this fixed order:
@@ -201,6 +202,7 @@ def generate_pdf(
 
     pdf = PuzzlePDF(format=paper_size)
     pdf._watermark = watermark
+    pdf._watermark_text = watermark_text or "Made with Puzzly"
     page_w, page_h = PAPER_SIZES.get(paper_size, (210, 297))
     margin = 15
 

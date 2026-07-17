@@ -89,7 +89,7 @@
                                 <button type="button" data-value="rounded">Rounded</button>
                                 <button type="button" data-value="minimal">Minimal</button>
                             </div>
-                            <p class="hint">Classic interlocking tabs. Rounded is softer for little kids. Minimal is almost straight cuts.</p>
+                            <p class="hint">Classic = pronounced interlocking tabs. Rounded = softer tabs for small kids. Minimal = barely-there tabs, nearly straight cuts.</p>
                         </div>
 
                         <div class="field">
@@ -100,34 +100,6 @@
                             </div>
                             <p class="hint">Scattered spreads pieces out to cut. One page prints and cuts in place.</p>
                         </div>
-                    </div>
-
-                    <div class="option-group">
-                        <div class="option-group-title">Transform</div>
-                        <div class="field">
-                            <div class="segmented" id="imageTransform">
-                                <button type="button" data-action="rotate-ccw" title="Rotate left">&#x21BA;</button>
-                                <button type="button" data-action="rotate-cw" title="Rotate right">&#x21BB;</button>
-                                <button type="button" data-action="flip-h" title="Flip horizontal">&#x21C4;</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="option-group">
-                        <div class="option-group-title">Image adjustments</div>
-                        <div class="field">
-                            <label for="brightness">Brightness <span class="hint" id="brightnessVal" style="display:inline;margin:0">100%</span></label>
-                            <input type="range" id="brightness" class="range" min="50" max="150" value="100" step="5">
-                        </div>
-                        <div class="field">
-                            <label for="contrast">Contrast <span class="hint" id="contrastVal" style="display:inline;margin:0">100%</span></label>
-                            <input type="range" id="contrast" class="range" min="50" max="150" value="100" step="5">
-                        </div>
-                        <div class="field">
-                            <label for="saturation">Saturation <span class="hint" id="saturationVal" style="display:inline;margin:0">100%</span></label>
-                            <input type="range" id="saturation" class="range" min="0" max="200" value="100" step="5">
-                        </div>
-                        <button type="button" class="btn btn-ghost" id="resetAdjustments" style="min-height:36px;padding:8px 12px;font-size:0.85rem">Reset adjustments</button>
                     </div>
 
                     <div class="option-group">
@@ -170,23 +142,13 @@
                     <div class="option-group">
                         <div class="option-group-title">Print</div>
 
-<div class="field">
+                        <div class="field">
                             <label for="paperSize">Paper size</label>
                             <select id="paperSize" class="input">
                                 <option value="A4" selected>A4</option>
                                 <option value="Letter">Letter (US)</option>
                                 <option value="A3">A3</option>
                             </select>
-                        </div>
-
-                        <div class="field" style="margin-top:14px">
-                            <label class="page-check">
-                                <input type="checkbox" id="watermarkOpt" class="sr-only">
-                                <span class="checkbox" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#FDF6E3" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg>
-                                </span>
-                                <span class="page-text"><strong>Watermark</strong> &mdash; small &quot;Made with Puzzly&quot; credit on each page</span>
-                            </label>
                         </div>
                     </div>
 
@@ -201,7 +163,7 @@
                             <span class="checkbox" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#FDF6E3" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg>
                             </span>
-                            <span class="page-text"><strong>Framed puzzle board</strong> &mdash; picture with frame &amp; cut lines (first page)</span>
+                            <span class="page-text"><strong>Framed puzzle board</strong> &mdash; picture with frame & cut lines (first page)</span>
                         </label>
 
                         <label class="page-check">
@@ -228,6 +190,23 @@
                             <span class="page-text"><strong>Placement template</strong> &mdash; white board with piece outlines</span>
                         </label>
                         <p class="muted sm" id="pagesHint" hidden>Select at least one page to generate a PDF.</p>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="option-group">
+                        <div class="option-group-title">Watermark</div>
+                        <label class="page-check">
+                            <input type="checkbox" id="watermarkOpt" class="sr-only">
+                            <span class="checkbox" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#FDF6E3" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-11"/></svg>
+                            </span>
+                            <span class="page-text"><strong>Add watermark</strong> &mdash; show custom text on each page</span>
+                        </label>
+                        <div class="field" id="watermarkTextWrap" hidden style="margin-top:10px">
+                            <label for="watermarkText" class="hint" style="margin-bottom:4px;display:block">Watermark text</label>
+                            <input type="text" id="watermarkText" class="input" value="Made with Puzzly" placeholder="Your watermark text" maxlength="60">
+                        </div>
                     </div>
                 </section>
             </div>

@@ -217,63 +217,12 @@ document.querySelectorAll("#imageTransform button").forEach((btn) =>
     });
 });
 
-let adjustTimer = null;
-async function applyAdjustments() {
-    if (!state.currentFile) return;
-    const brightness = (parseInt($("brightness").value, 10) || 100) / 100;
-    const contrast = (parseInt($("contrast").value, 10) || 100) / 100;
-    const saturation = (parseInt($("saturation").value, 10) || 100) / 100;
-    // Neutral values: no need to rewrite the file.
-    if (brightness === 1 && contrast === 1 && saturation === 1) {
-        requestPreview();
-        return;
-    }
-    $("previewHint").textContent = "Adjusting image\u2026";
-    try {
-        const res = await fetch("/adjust", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                filename: state.currentFile,
-                brightness,
-                contrast,
-                saturation,
-            }),
-        });
-        const data = await res.json();
-        if (data.filename) {
-            state.currentFile = data.filename;
-            // Reset sliders after baking into file so next move is relative to new base.
-            ["brightness", "contrast", "saturation"].forEach((id) => {
-                $(id).value = 100;
-                $(id + "Val").textContent = "100%";
-            });
-            requestPreview();
-        } else {
-            $("previewHint").textContent = data.error || "Adjust failed";
-        }
-    } catch (e) {
-        $("previewHint").textContent = "Adjust failed";
-    }
-}
-
-["brightness", "contrast", "saturation"].forEach((id) => {
-    const el = $(id);
-    if (!el) return;
-    el.addEventListener("input", () => {
-        $(id + "Val").textContent = el.value + "%";
-        clearTimeout(adjustTimer);
-        adjustTimer = setTimeout(applyAdjustments, 350);
-    });
-});
-
-const resetAdj = $("resetAdjustments");
-if (resetAdj) {
-    resetAdj.addEventListener("click", () => {
-        ["brightness", "contrast", "saturation"].forEach((id) => {
-            $(id).value = 100;
-            $(id + "Val").textContent = "100%";
-        });
+/* Watermark checkbox toggles the text input visibility */
+const watermarkOpt = $("watermarkOpt");
+const watermarkTextWrap = $("watermarkTextWrap");
+if (watermarkOpt && watermarkTextWrap) {
+    watermarkOpt.addEventListener("change", () => {
+        watermarkTextWrap.hidden = !watermarkOpt.checked;
         requestPreview();
     });
 }
@@ -311,6 +260,7 @@ function getOptions() {
         border_width: parseInt($("borderWidth").dataset.value, 10) || 3,
         paper_size: $("paperSize").value,
         watermark: !!( $("watermarkOpt") && $("watermarkOpt").checked ),
+        watermark_text: $("watermarkOpt") && $("watermarkOpt").checked ? ($("watermarkText").value || "Made with Puzzly").slice(0, 60) : "",
         pages: Array.from(document.querySelectorAll(".page-opt:checked")).map(
             (el) => el.value
         ),
@@ -356,9 +306,44 @@ async function doPreview() {
 }
 
 /* ---------------- Print ---------------- */
-$("printBtn").addEventListener("click", () => {
+$("printBtn").addEventListener("click", async () => {
     if (!state.currentFile) return;
-    window.print();
+    if (!anyPageSelected()) {
+        showStatus("error", "Select at least one page to include in the PDF.");
+        updateGenerateState();
+        return;
+    }
+    state.generating = true;
+    const btn = $("printBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Preparing...';
+    showStatus("loading", "Generating PDF for print...");
+
+    const opts = getOptions();
+    try {
+        const res = await fetch("/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(opts),
+        });
+        const data = await res.json();
+        if (data.download_url) {
+            showStatus(
+                "success",
+                `Ready! <a href="${data.download_url}" target="_blank" rel="noopener">Open PDF for printing</a>`
+            );
+            // Also open in new tab for immediate print
+            window.open(data.download_url, "_blank");
+        } else {
+            throw new Error(data.error || "generation failed");
+        }
+    } catch (e) {
+        showStatus("error", e.message || "Could not generate the puzzle for printing.");
+    } finally {
+        state.generating = false;
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg> Print preview`;
+    }
 });
 
 /* ---------------- Generate ---------------- */

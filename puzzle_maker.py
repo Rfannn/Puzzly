@@ -16,9 +16,9 @@ from PIL import Image, ImageDraw
 
 # tab_style scales: (height_factor, head_factor)
 _TAB_STYLES = {
-    "classic": (0.22, 0.38),
-    "rounded": (0.16, 0.48),
-    "minimal": (0.08, 0.22),
+    "classic": (0.22, 0.38),      # pronounced interlocking tabs
+    "rounded": (0.16, 0.55),      # softer, rounder tabs for small kids
+    "minimal": (0.04, 0.12),      # barely-there tabs, almost straight cuts
 }
 
 
