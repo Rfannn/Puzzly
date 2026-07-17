@@ -6,8 +6,13 @@ app.py reads configuration (SECRET_KEY, ADMIN_TOKEN, ...) at import time.
 
 import io
 import os
+import sys
+from pathlib import Path
 
 import pytest
+
+# Add parent directory (project root) to sys.path so `import app` works
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 os.environ.setdefault("FLASK_DEBUG", "1")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
